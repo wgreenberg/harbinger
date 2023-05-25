@@ -4,11 +4,12 @@ use std::path::{PathBuf, Path};
 use std::fs::{
     create_dir,
     create_dir_all,
-    OpenOptions, remove_dir_all,
+    OpenOptions,
 };
 use std::io::Write;
 use clap::{Parser, Subcommand};
 use anyhow::Result;
+use deno_ast::ParsedSource;
 use thiserror::Error;
 use har::{
     from_path,
@@ -20,6 +21,8 @@ use rocket::{
 };
 use dprint_plugin_typescript::*;
 use dprint_plugin_typescript::configuration::*;
+use indicatif::{ProgressBar, ProgressStyle};
+use log::{info, warn};
 
 use crate::js::{parse_swc_ast, unpack_webpack_chunk_list};
 
@@ -64,9 +67,6 @@ enum Command {
         #[arg(long, short)]
         output_path: PathBuf,
 
-        #[arg(long, short)]
-        force: bool,
-
         #[arg(long)]
         unminify: bool,
     },
@@ -77,26 +77,27 @@ fn build_server(har: &Log, dump_path: &Option<PathBuf>) -> Rocket<Build> {
     server
 }
 
-fn dump(har: &Log, output_path: &PathBuf, unminify: bool, force: bool) -> Result<()> {
+fn dump(har: &Log, output_path: &PathBuf, unminify: bool) -> Result<()> {
     if output_path.try_exists()? {
-        if force {
-            println!("--force provided, removing directory at {}", output_path.display());
-            remove_dir_all(output_path)?;
-        } else {
-            return Err(HarbingerError::DumpPathExists.into());
-        }
+        return Err(HarbingerError::DumpPathExists.into());
     }
     create_dir(output_path)?;
 
     let page_id = har.pages.as_ref().map(|pages| {
         if pages.len() > 1 {
-            eprintln!("multiple HAR pages not supported, only using first page");
+            warn!("multiple HAR pages not supported, only using first page");
         }
         pages[0].id.clone()
     });
 
-    let entries = har.entries.iter()
-        .filter(|entry| entry.pageref == page_id);
+    let entries: Vec<&Entries> = har.entries.iter()
+        .filter(|entry| entry.pageref == page_id)
+        .collect();
+
+    let pb_style = ProgressStyle::with_template("{prefix:.bold.dim} {spinner} {bar} {msg}")
+        .unwrap();
+    let pb = ProgressBar::new(entries.len() as u64);
+    pb.set_style(pb_style);
 
     let unminification_config = ConfigurationBuilder::new()
         .line_width(80)
@@ -106,9 +107,11 @@ fn dump(har: &Log, output_path: &PathBuf, unminify: bool, force: bool) -> Result
         .next_control_flow_position(NextControlFlowPosition::SameLine)
         .build();
 
-    for entry in entries {
+    for (i, entry) in entries.iter().enumerate() {
+        pb.set_prefix(format!("[{}/{}]", i, entries.len()));
+        pb.set_message(format!("processing {}", entry.request.url));
         if entry.request.method != "GET" {
-            println!("skipping {} {}", entry.request.method, entry.request.url);
+            pb.println(format!("skipping {} {}", entry.request.method, entry.request.url));
             continue;
         }
 
@@ -118,64 +121,64 @@ fn dump(har: &Log, output_path: &PathBuf, unminify: bool, force: bool) -> Result
             None => {},
         }
 
-        println!("creating {}", path.display());
+        pb.println(format!("processing {}", entry.request.url));
         let body = entry.response.content.text
             .as_ref()
             .unwrap();
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&path)?;
         if unminify && entry_content_type(&entry) == Some("application/javascript") {
-            println!("  parsing...");
+            pb.println(" * parsing...");
             let parsed_source = parse_swc_ast(&path, &body)?;
             if let Some(chunks) = unpack_webpack_chunk_list(&parsed_source) {
                 let mut unpack_path = path.with_extension("");
                 let file_name = unpack_path.file_name().unwrap().to_str().unwrap();
                 unpack_path.set_file_name(format!("{}_unbundled", file_name));
-                println!("  detected {} webpack chunks, unpacking to {}...", chunks.len(), unpack_path.display());
+                pb.println(format!(" * detected {} webpack chunks, unpacking to {}...", chunks.len(), unpack_path.display()));
                 create_dir(&unpack_path)?;
                 for (id, source) in chunks {
                     let mut chunk_path = unpack_path.join(id);
                     chunk_path.set_extension("js");
-                    let mut chunk_file = OpenOptions::new()
-                        .write(true)
-                        .create(true)
-                        .open(&chunk_path)?;
+                    pb.println(format!("  * unpacking {}...", chunk_path.display()));
                     let parsed_chunk = parse_swc_ast(&chunk_path, &source)?;
-                    match format_parsed_source(&parsed_chunk, &unminification_config) {
-                        Ok(Some(unminified_body)) => {
-                            chunk_file.write_all(&unminified_body.as_bytes())?;
-                            continue;
-                        },
-                        Ok(None) => {
-                            println!("  unminification failed: no unminified body?")
-                        }
-                        Err(err) => {
-                            println!("  unminification failed: {:?}", err);
-                        }
-                    }
+                    write_unminified(&chunk_path, &parsed_chunk, &unminification_config)?;
                 }
             }
-            println!("  unminifying...");
-            match format_parsed_source(&parsed_source, &unminification_config) {
-                Ok(Some(unminified_body)) => {
-                    file.write_all(&unminified_body.as_bytes())?;
-                    continue;
-                },
-                Ok(None) => {
-                    println!("  unminification failed: no unminified body?")
-                }
-                Err(err) => {
-                    println!("  unminification failed: {:?}", err);
-                }
-            }
+            pb.println(" * unminifying...");
+            write_unminified(&path, &parsed_source, &unminification_config)?;
+        } else {
+            pb.println(" * writing normally...");
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(&path)?;
+            file.write_all(body.as_bytes())?;
         }
-        println!("  writing normally");
-        file.write_all(body.as_bytes())?;
+        pb.inc(1);
     }
+    pb.inc(1);
+    pb.finish_with_message("finished!");
 
     Ok(())
+}
+
+#[derive(Error, Debug)]
+enum UnminificationError {
+    #[error("no unminified body returned")]
+    NoUnminifiedBody,
+}
+
+fn write_unminified(path: &PathBuf, source: &ParsedSource, config: &Configuration) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(&path)?;
+    match format_parsed_source(&source, &config) {
+        Ok(Some(unminified_body)) => {
+            file.write_all(&unminified_body.as_bytes())?;
+            Ok(())
+        },
+        Ok(None) => Err(UnminificationError::NoUnminifiedBody.into()),
+        Err(err) => Err(err)
+    }
 }
 
 fn entry_to_dump_path(base_path: &PathBuf, entry: &Entries) -> PathBuf {
@@ -220,8 +223,8 @@ async fn main () {
                 .launch()
                 .await;
         },
-        Command::Dump { output_path, unminify, force, .. } => {
-            dump(&har, &output_path, *unminify, *force)
+        Command::Dump { output_path, unminify, .. } => {
+            dump(&har, &output_path, *unminify)
                 .expect("failed to dump HAR");
         },
     }
