@@ -3,7 +3,7 @@ use log::{info, error, debug};
 use rocket::{Response, get, routes, State};
 use rocket::{Build, Rocket, Route, http::Method, Request, Data};
 use rocket::config::Config as RocketConfig;
-use rocket::http::Status;
+use rocket::http::{Status, ContentType};
 use rocket::route::{Handler, Outcome};
 use std::io;
 use std::path::PathBuf;
@@ -31,20 +31,31 @@ struct Config {
 }
 
 #[get("/")]
-fn serve_index(config: &State<Config>) -> String {
-    include_str!("../static/index.html")
-        .replace("HARBINGER_TMPL_START_URI", &config.start_uri)
+fn serve_index(config: &State<Config>) -> (ContentType, String) {
+    let content = include_str!("../static/index.html")
+            .replace("HARBINGER_TMPL_START_URI", &config.start_uri);
+    (ContentType::HTML, content)
 }
 
-#[get("/app.js")]
-fn serve_app_js() -> String {
-    include_str!("../static/app.js").to_string()
+#[get("/harbinger_app.js")]
+fn serve_app_js() -> (ContentType, &'static str) {
+    let content = include_str!("../static/harbinger_app.js");
+    (ContentType::JavaScript, content)
 }
 
-#[get("/worker.js")]
-fn serve_worker_js(config: &State<Config>) -> String {
-    include_str!("../static/worker.js")
-        .replace("HARBINGER_TMPL_PORT", &config.port.to_string())
+#[get("/harbinger_worker.js")]
+fn serve_worker_js(config: &State<Config>) -> (ContentType, String) {
+    let content = include_str!("../static/harbinger_worker.js")
+        .replace("HARBINGER_TMPL_PORT", &config.port.to_string());
+    (ContentType::JavaScript, content)
+}
+
+fn get_entry_route_path(entry: &Entry) -> Result<String> {
+    let uri = entry.uri()?;
+    let hostname = uri.authority()
+        .unwrap()
+        .host();
+    Ok(format!("/{}{}", hostname, uri.path()))
 }
 
 pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>) -> Result<Rocket<Build>> {
@@ -63,7 +74,8 @@ pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>) -> Result
     let mut routes = Vec::new();
     let mut routed_paths = Vec::new();
     for entry in har.entries.iter().cloned() {
-        let path = entry.uri()?.path().to_string();
+        let path = get_entry_route_path(&entry)?;
+        dbg!(&path);
         if routed_paths.contains(&path) {
             continue
         }
@@ -117,6 +129,7 @@ impl Handler for EntryHandler {
             }
             res.set_raw_header(name.to_string(), value.to_string());
         }
+        res.set_raw_header("content-security-policy", "base-uri 'self'");
         match self.get_body() {
             Ok(body) => {
                 res.set_sized_body(None, io::Cursor::new(body));

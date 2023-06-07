@@ -2,7 +2,7 @@ const registerServiceWorker = async () => {
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register(
-        'worker.js',
+        'harbinger_worker.js',
         { scope: './' }
       );
       if (registration.installing) {
