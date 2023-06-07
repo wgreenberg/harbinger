@@ -4,7 +4,7 @@ use har::{
     v1_2::{Entries, Headers, Log},
 };
 use log::warn;
-use rocket::{http::uri::Uri, Route};
+use rocket::{http::uri, Route};
 use std::{
     convert::TryFrom,
     path::{Path, PathBuf},
@@ -50,8 +50,15 @@ impl Har {
         let log = read_v1_2_har(path)?;
         Ok(Har::new(log))
     }
+
+    pub fn origin_host(&self) -> Result<String> {
+        let uri = self.entries[0].uri()?;
+        let host = uri.authority().unwrap().host().to_string();
+        Ok(host)
+    }
 }
 
+#[derive(Clone)]
 pub struct Entry {
     inner: Entries,
 }
@@ -78,23 +85,18 @@ impl Entry {
         path
     }
 
-    pub fn uri(&self) -> Result<rocket::http::uri::Uri> {
-        Uri::parse_any(self.inner.request.url.as_str())
-            .map_err(|_| HarbingerError::InvalidHarEntryUri.into())
+    pub fn uri(&self) -> Result<uri::Absolute> {
+        let req_uri = self.inner.request.url.as_str();
+        let parsed = uri::Uri::parse::<uri::Absolute>(req_uri)
+            .map_err(|_| HarbingerError::InvalidHarEntryUri)?;
+        parsed.absolute()
+            .cloned()
+            .ok_or(HarbingerError::InvalidHarEntryUri.into())
     }
 
     pub fn is_origin_request(&self, origin_host: &str) -> Result<bool> {
-        Ok(match self.uri()? {
-            Uri::Origin(_) => true,
-            Uri::Absolute(uri) => {
-                if let Some(authority) = uri.authority() {
-                    authority.host() == origin_host
-                } else {
-                    true
-                }
-            }
-            _ => false,
-        })
+        let entry_uri = self.uri()?;
+        Ok(entry_uri.authority().unwrap().host() == origin_host)
     }
 
     fn get_header_value<'a>(&self, headers: &'a [Headers], name: &str) -> Option<&'a str> {
@@ -113,6 +115,11 @@ impl Entry {
         self.get_header_value(&self.inner.response.headers, name)
     }
 
+    pub fn res_headers(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.inner.response.headers.iter()
+            .map(|header| (header.name.as_str(), header.value.as_str()))
+    }
+
     pub fn method(&self) -> &str {
         return self.inner.request.method.as_str();
     }
@@ -123,13 +130,5 @@ impl Entry {
 
     pub fn res_body(&self) -> Option<&str> {
         self.inner.response.content.text.as_deref()
-    }
-}
-
-impl TryFrom<&Entry> for Route {
-    type Error = HarbingerError;
-
-    fn try_from(value: &Entry) -> std::result::Result<Self, Self::Error> {
-        todo!()
     }
 }

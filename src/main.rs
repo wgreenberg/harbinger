@@ -33,6 +33,9 @@ enum Command {
 
         #[arg(long, short)]
         dump_path: Option<PathBuf>,
+
+        #[arg(long, short, default_value_t = 8000)]
+        port: u16,
     },
     Dump {
         har_path: PathBuf,
@@ -50,8 +53,8 @@ async fn main() {
     let args = Args::parse();
     let har = Har::read(args.get_path()).unwrap();
     match &args.command {
-        Command::Serve { dump_path, .. } => {
-            let _ = build_server(&har, dump_path)
+        Command::Serve { dump_path, port, .. } => {
+            let _ = build_server(&har, *port, dump_path)
                 .expect("failed to initialize server from HAR")
                 .launch()
                 .await;

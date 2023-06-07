@@ -13,4 +13,6 @@ pub enum HarbingerError {
     DumpPathExists,
     #[error("Invalid HAR entry: invalid URI")]
     InvalidHarEntryUri,
+    #[error("Invalid HAR entry: invalid method {method}")]
+    InvalidHarEntryMethod { method: String },
 }
