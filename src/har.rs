@@ -1,19 +1,21 @@
 use anyhow::Result;
 use har::{
-    from_path,
+    Har as HarExt,
     v1_2::{Entries, Headers, Log},
 };
+use base64::{ Engine, engine::general_purpose::STANDARD };
 use log::warn;
-use rocket::{http::uri, Route};
+use rocket::http::uri;
 use std::{
-    convert::TryFrom,
     path::{Path, PathBuf},
+    fs::File,
 };
 
 use crate::error::HarbingerError;
 
 fn read_v1_2_har(path: &PathBuf) -> Result<Log> {
-    match from_path(path)?.log {
+    let reader = File::open(path)?;
+    match serde_json::from_reader::<File, HarExt>(reader)?.log {
         har::Spec::V1_2(log) => Ok(log),
         _ => Err(HarbingerError::UnsupportedHarVersion.into()),
     }
@@ -34,14 +36,13 @@ impl Har {
         let entries = har
             .entries
             .drain(..)
-            .filter(|entry| {
-                entry
-                    .pageref
-                    .as_ref()
-                    .map(|id| id == &page_id)
-                    .unwrap_or(false)
+            .map(|entry| {
+                if entry.pageref.as_ref() != Some(&page_id) {
+                    warn!("entry {}: expected pagref {:?}, got {}",
+                        &entry.request.url, &entry.pageref, &page_id);
+                }
+                Entry::new(entry)
             })
-            .map(|entry| Entry::new(entry))
             .collect();
         Har { entries, page_id }
     }
@@ -94,6 +95,10 @@ impl Entry {
             .ok_or(HarbingerError::InvalidHarEntryUri.into())
     }
 
+    pub fn hostname(&self) -> Result<String> {
+        Ok(self.uri()?.authority().unwrap().host().to_string())
+    }
+
     pub fn is_origin_request(&self, origin_host: &str) -> Result<bool> {
         let entry_uri = self.uri()?;
         Ok(entry_uri.authority().unwrap().host() == origin_host)
@@ -128,7 +133,13 @@ impl Entry {
         return self.inner.response.status;
     }
 
-    pub fn res_body(&self) -> Option<&str> {
-        self.inner.response.content.text.as_deref()
+    pub fn res_body(&self) -> Option<Vec<u8>> {
+        let body = self.inner.response.content.text.as_ref()?;
+        // check if the content is base64 encoded
+        if let Ok(decoded) = STANDARD.decode(body) {
+            Some(decoded)
+        } else {
+            Some(body.as_bytes().to_vec())
+        }
     }
 }

@@ -48,10 +48,11 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
         }
 
         pb.println(format!("processing {}", uri));
-        let body = entry.res_body().unwrap();
+        let body_bytes = entry.res_body().unwrap();
         if unminify && entry.res_header("content-type") == Some("application/javascript") {
             pb.println(" * parsing...");
-            let parsed_source = parse_swc_ast(&path, body)?;
+            let body_str = std::str::from_utf8(&body_bytes).unwrap();
+            let parsed_source = parse_swc_ast(&path, &body_str)?;
             if let Some(chunks) = unpack_webpack_chunk_list(&parsed_source) {
                 let mut unpack_path = path.with_extension("");
                 let file_name = unpack_path.file_name().unwrap().to_str().unwrap();
@@ -75,7 +76,7 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
         } else {
             pb.println(" * writing normally...");
             let mut file = OpenOptions::new().write(true).create(true).open(&path)?;
-            file.write_all(body.as_bytes())?;
+            file.write_all(&body_bytes)?;
         }
         pb.inc(1);
     }

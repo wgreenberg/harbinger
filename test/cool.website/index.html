@@ -1,0 +1,35 @@
+<html>
+    <head>
+        <meta http-equiv="Content-Security-Policy" content="default-src *; style-src * 'unsafe-inline'; img-src *; child-src *; script-src * 'unsafe-inline';" />
+        <title>cool website !</title>
+
+        <!-- some local scripts -->
+        <script src="/relative-script.js"></script>
+        <script src="http://cool.website/absolute-script.js"></script>
+        <script>
+            const zalgo_uri = "https://api.stackexchange.com/2.3/answers/1732454?order=desc&sort=activity&site=stackoverflow&filter=!-)ZoK(1l90pT";
+            document.addEventListener("DOMContentLoaded", async () => {
+                const res = await fetch(zalgo_uri);
+                const zalgo_text = (await res.json()).items[0].body;
+                document.getElementById('zalgo').innerHTML = zalgo_text;
+            });
+        </script>
+
+        <!-- external css/js -->
+        <link rel="stylesheet" href="https://unpkg.com/@blaze/css@x.x.x/dist/blaze/blaze.css">
+        <script type="module" src="https://unpkg.com/@blaze/atoms@x.x.x/dist/blaze-atoms/blaze-atoms.esm.js"></script>
+        <script nomodule="" src="https://unpkg.com/@blaze/atoms@x.x.x/dist/blaze-atoms/blaze-atoms.js"></script>
+    </head>
+    <body>
+        <!-- images: relative, absolute, and external -->
+        <img src="/relative-image.jpg">
+        <img src="http://cool.website/absolute-image.jpg">
+        <img src="https://theshrimp.cloud/img/SHRIMP.png">
+        
+        <!-- iframes: relative, absolute, and external -->
+        <iframe src="/relative-iframe.html"></iframe>
+        <iframe src="http://cool.website/absolute-iframe.html"></iframe>
+        <iframe src="https://theshrimp.cloud/"></iframe>
+        <div id="zalgo"></div>
+    </body>
+</html>
