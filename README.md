@@ -1,7 +1,7 @@
 # harbinger
 
 ## CAVEATS
-* export HAR from firefox: set `devtools.netmonitor.responseBodyLimit` to `0`
+* to export a complete HAR from firefox: set `devtools.netmonitor.responseBodyLimit` to `0`
 
 ## TODO
 * proxy requests to some other backend (e.g. a python server for dynamic responses)
