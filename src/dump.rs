@@ -63,12 +63,9 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
                     unpack_path.display()
                 ));
                 create_dir(&unpack_path)?;
-                for (id, source) in chunks {
-                    let mut chunk_path = unpack_path.join(id);
-                    chunk_path.set_extension("js");
-                    pb.println(format!("  * unpacking {}...", chunk_path.display()));
-                    let parsed_chunk = parse_swc_ast(&chunk_path, &source)?;
-                    write_unminified(&chunk_path, &parsed_chunk, &unminification_config)?;
+                for chunk in &chunks {
+                    pb.println(format!("  * unpacking {}...", chunk.label));
+                    chunk.write_to_file(&unpack_path)?;
                 }
             }
             pb.println(" * unminifying...");

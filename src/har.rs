@@ -1,14 +1,14 @@
 use anyhow::Result;
+use base64::{engine::general_purpose::STANDARD, Engine};
 use har::{
-    Har as HarExt,
     v1_2::{Entries, Headers, Log},
+    Har as HarExt,
 };
-use base64::{ Engine, engine::general_purpose::STANDARD };
 use log::warn;
 use rocket::http::uri;
 use std::{
-    path::{Path, PathBuf},
     fs::File,
+    path::{Path, PathBuf},
 };
 
 use crate::error::HarbingerError;
@@ -38,8 +38,10 @@ impl Har {
             .drain(..)
             .map(|entry| {
                 if entry.pageref.as_ref() != Some(&page_id) {
-                    warn!("entry {}: expected pagref {:?}, got {}",
-                        &entry.request.url, &entry.pageref, &page_id);
+                    warn!(
+                        "entry {}: expected pagref {:?}, got {}",
+                        &entry.request.url, &entry.pageref, &page_id
+                    );
                 }
                 Entry::new(entry)
             })
@@ -90,7 +92,8 @@ impl Entry {
         let req_uri = self.inner.request.url.as_str();
         let parsed = uri::Uri::parse::<uri::Absolute>(req_uri)
             .map_err(|_| HarbingerError::InvalidHarEntryUri)?;
-        parsed.absolute()
+        parsed
+            .absolute()
             .cloned()
             .ok_or(HarbingerError::InvalidHarEntryUri.into())
     }
@@ -121,7 +124,10 @@ impl Entry {
     }
 
     pub fn res_headers(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.inner.response.headers.iter()
+        self.inner
+            .response
+            .headers
+            .iter()
             .map(|header| (header.name.as_str(), header.value.as_str()))
     }
 

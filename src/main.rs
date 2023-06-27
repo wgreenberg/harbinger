@@ -53,7 +53,9 @@ async fn main() {
     let args = Args::parse();
     let har = Har::read(args.get_path()).unwrap();
     match &args.command {
-        Command::Serve { dump_path, port, .. } => {
+        Command::Serve {
+            dump_path, port, ..
+        } => {
             let _ = build_server(&har, *port, dump_path)
                 .expect("failed to initialize server from HAR")
                 .launch()

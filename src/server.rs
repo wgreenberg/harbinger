@@ -1,14 +1,17 @@
 use anyhow::Result;
-use log::{info, error, warn};
-use rocket::{Response, get, routes, State};
-use rocket::{Build, Rocket, Route, http::Method, Request, Data};
+use log::{error, info, warn};
 use rocket::config::Config as RocketConfig;
-use rocket::http::{Status, ContentType, uri};
+use rocket::http::{uri, ContentType, Status};
 use rocket::route::{Handler, Outcome};
+use rocket::{get, routes, Response, State};
+use rocket::{http::Method, Build, Data, Request, Rocket, Route};
 use std::io;
 use std::path::PathBuf;
 
-use crate::{har::{Har, Entry}, error::HarbingerError};
+use crate::{
+    error::HarbingerError,
+    har::{Entry, Har},
+};
 
 const UNFORWARDED_HEADERS: &'static [&'static str] = &[
     // Security headers we want to override
@@ -17,7 +20,6 @@ const UNFORWARDED_HEADERS: &'static [&'static str] = &[
     "x-xss-protection",
     "access-control-allow-origin",
     "access-control-allow-credentials",
-
     // Content-specific headers that may be overridden depending on user
     // modifications
     "content-encoding",
@@ -51,9 +53,7 @@ fn serve_worker_js(config: &State<Config>) -> (ContentType, String) {
 }
 
 fn get_entry_route_path(entry_uri: &uri::Absolute, origin_host: &str) -> Result<String> {
-    let hostname = entry_uri.authority()
-        .unwrap()
-        .host();
+    let hostname = entry_uri.authority().unwrap().host();
     if hostname == origin_host {
         Ok(format!("/{}", entry_uri.path()))
     } else {
@@ -77,24 +77,26 @@ pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>) -> Result
         let path = get_entry_route_path(&entry_uri, &origin_host)?;
         if routed_paths.contains(&path) {
             warn!("found duplicate entry for path {}, skipping", &path);
-            continue
+            continue;
         }
-        let method: Method = entry.method().parse()
-            .map_err(|_| HarbingerError::InvalidHarEntryMethod {
-                method: entry.method().to_string(),
-            })?;
-        let handler = EntryHandler { entry, dump_path: dump_path.clone() };
+        let method: Method =
+            entry
+                .method()
+                .parse()
+                .map_err(|_| HarbingerError::InvalidHarEntryMethod {
+                    method: entry.method().to_string(),
+                })?;
+        let handler = EntryHandler {
+            entry,
+            dump_path: dump_path.clone(),
+        };
         entry_routes.push(Route::new(method, &path, handler));
         routed_paths.push(path);
     }
 
-    let server_config = RocketConfig::figment()
-        .merge(("port", port));
+    let server_config = RocketConfig::figment().merge(("port", port));
 
-    let shared_config = Config {
-        port,
-        origin_host,
-    };
+    let shared_config = Config { port, origin_host };
 
     Ok(rocket::custom(server_config)
         .mount("/", routes![serve_index, serve_app_js, serve_worker_js])
@@ -113,14 +115,21 @@ impl EntryHandler {
         if let Some(base_path) = &self.dump_path {
             let override_path = self.entry.get_dump_path(base_path);
             if override_path.exists() {
-                info!("{} {}: loading body from file {}", self.entry.method(), self.entry.uri()?, override_path.display());
-                return std::fs::read(override_path)
-                    .map_err(|err| err.into());
+                info!(
+                    "{} {}: loading body from file {}",
+                    self.entry.method(),
+                    self.entry.uri()?,
+                    override_path.display()
+                );
+                return std::fs::read(override_path).map_err(|err| err.into());
             }
         }
-        info!("{} {}: loading body from HAR", self.entry.method(), self.entry.uri()?);
-        Ok(self.entry.res_body()
-            .unwrap_or(vec![]).to_owned())
+        info!(
+            "{} {}: loading body from HAR",
+            self.entry.method(),
+            self.entry.uri()?
+        );
+        Ok(self.entry.res_body().unwrap_or(vec![]).to_owned())
     }
 }
 
@@ -136,8 +145,7 @@ impl Handler for EntryHandler {
 
             // handle Location headers for redirects
             if normalized_name == "location" {
-                let hostname = self.entry.hostname()
-                    .unwrap();
+                let hostname = self.entry.hostname().unwrap();
                 let new_location;
                 if value.starts_with('/') {
                     new_location = format!("/{}{}", hostname, value);
@@ -169,11 +177,11 @@ impl Handler for EntryHandler {
         match self.get_body() {
             Ok(body) => {
                 res.set_sized_body(None, io::Cursor::new(body));
-            },
+            }
             Err(err) => {
                 error!("error getting body for entry {}", err);
                 return Outcome::Failure(Status::InternalServerError);
-            },
+            }
         }
         res.set_status(rocket::http::Status::new(self.entry.status() as u16));
         Outcome::Success(res)
