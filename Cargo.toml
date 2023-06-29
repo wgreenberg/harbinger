@@ -22,3 +22,4 @@ base64 = "0.21.2"
 swc_core = { version = "0.78.3", features = ["common", "ecma_utils", "ecma_plugin_transform"] }
 serde = "1.0.164"
 swc = "0.261.41"
+reqwest = "0.11.18"

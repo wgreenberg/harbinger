@@ -1,14 +1,7 @@
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
-use deno_ast::swc::ast;
-use deno_ast::swc::ast::BlockStmt;
-use deno_ast::swc::ast::BlockStmtOrExpr;
-use deno_ast::swc::ast::CallExpr;
-use deno_ast::swc::ast::Expr;
-use deno_ast::swc::ast::Ident;
-use deno_ast::swc::ast::KeyValueProp;
-use deno_ast::swc::ast::Program;
+use deno_ast::swc::ast::{self, BlockStmt, BlockStmtOrExpr, CallExpr, Expr, Ident, KeyValueProp};
 use deno_ast::swc::common::EqIgnoreSpan;
 use deno_ast::swc::common::{FilePathMapping, SourceMap};
 use deno_ast::swc::parser::error::SyntaxError;
@@ -18,20 +11,11 @@ use deno_ast::view::AssignOp;
 use deno_ast::view::BinaryOp;
 use deno_ast::view::EsVersion;
 use deno_ast::ParsedSource;
-use deno_ast::SourceRange;
-use deno_ast::SourceRangedForSpanned;
 use deno_ast::SourceTextInfo;
-use log::debug;
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::Path;
-use std::sync::Arc;
+use std::{fs::OpenOptions, io::Write, path::Path, sync::Arc};
 use swc::config::SourceMapsConfig;
 use swc::Compiler;
-use swc_core::common::collections::AHashMap;
-use swc_core::common::util::take::Take;
-use swc_core::common::Globals;
-use swc_core::common::GLOBALS;
+use swc_core::common::{collections::AHashMap, util::take::Take, Globals, GLOBALS};
 
 fn verify_webpack_chunk_list(call_expr: &CallExpr) -> Option<()> {
     // we're looking for something like:

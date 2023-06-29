@@ -102,21 +102,12 @@ impl Entry {
         Ok(self.uri()?.authority().unwrap().host().to_string())
     }
 
-    pub fn is_origin_request(&self, origin_host: &str) -> Result<bool> {
-        let entry_uri = self.uri()?;
-        Ok(entry_uri.authority().unwrap().host() == origin_host)
-    }
-
     fn get_header_value<'a>(&self, headers: &'a [Headers], name: &str) -> Option<&'a str> {
         headers
             .iter()
             .filter(|hdr| hdr.name.to_lowercase() == name)
             .map(|hdr| &*hdr.value)
             .next()
-    }
-
-    pub fn req_header(&self, name: &str) -> Option<&str> {
-        self.get_header_value(&self.inner.request.headers, name)
     }
 
     pub fn res_header(&self, name: &str) -> Option<&str> {

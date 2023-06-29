@@ -61,7 +61,7 @@ fn get_entry_route_path(entry_uri: &uri::Absolute, origin_host: &str) -> Result<
     }
 }
 
-pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>) -> Result<Rocket<Build>> {
+pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>, proxy: &Option<reqwest::Url>) -> Result<Rocket<Build>> {
     if let Some(path) = dump_path {
         if !path.try_exists().unwrap() {
             panic!("dump path {} doesn't exist", path.display());
@@ -94,7 +94,17 @@ pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>) -> Result
         routed_paths.push(path);
     }
 
-    let server_config = RocketConfig::figment().merge(("port", port));
+    if let Some(proxy_url) = proxy {
+        use rocket::http::Method::*;
+        for method in &[Get, Put, Post, Delete, Options, Head, Trace, Connect, Patch] {
+            let handler = ProxyHandler { proxy_url: proxy_url.clone() };
+            entry_routes.push(Route::new(*method, "/<any..>", handler));
+        }
+    }
+
+    let server_config = RocketConfig::figment()
+        .merge(("port", port))
+        .merge(("log_level", "debug"));
 
     let shared_config = Config { port, origin_host };
 
@@ -102,6 +112,46 @@ pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>) -> Result
         .mount("/", routes![serve_index, serve_app_js, serve_worker_js])
         .mount("/", entry_routes)
         .manage(shared_config))
+}
+
+#[derive(Clone)]
+struct ProxyHandler {
+    proxy_url: reqwest::Url,
+}
+
+#[rocket::async_trait]
+impl Handler for ProxyHandler {
+    async fn handle<'r>(&self, req: &'r Request<'_>, _: Data<'r>) -> Outcome<'r> {
+        let client = reqwest::Client::new();
+        let method = match req.method() {
+            Method::Get => reqwest::Method::GET,
+            Method::Put => reqwest::Method::PUT,
+            Method::Post => reqwest::Method::POST,
+            Method::Delete => reqwest::Method::DELETE,
+            Method::Options => reqwest::Method::OPTIONS,
+            Method::Head => reqwest::Method::HEAD,
+            Method::Trace => reqwest::Method::TRACE,
+            Method::Connect => reqwest::Method::CONNECT,
+            Method::Patch => reqwest::Method::PATCH,
+        };
+        let mut proxy_url = self.proxy_url.clone();
+        proxy_url.set_path(req.uri().path().as_str());
+        let proxy_req = client.request(method, proxy_url)
+            .build().unwrap();
+        let proxy_res = client.execute(proxy_req).await.unwrap();
+        let mut res = Response::new();
+        let status = Status::from_code(proxy_res.status().as_u16()).unwrap();
+        res.set_status(status);
+        for (name, value) in proxy_res.headers() {
+            let name_clone = name.to_string();
+            let value_clone = value.to_str().unwrap().to_string();
+            res.adjoin_raw_header(name_clone, value_clone);
+        }
+        if let Ok(bytes) = proxy_res.bytes().await {
+            res.set_sized_body(bytes.len(), io::Cursor::new(bytes));
+        }
+        Outcome::Success(res)
+    }
 }
 
 #[derive(Clone)]

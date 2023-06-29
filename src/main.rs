@@ -36,6 +36,9 @@ enum Command {
 
         #[arg(long, short, default_value_t = 8000)]
         port: u16,
+
+        #[arg(long)]
+        proxy: Option<reqwest::Url>,
     },
     Dump {
         har_path: PathBuf,
@@ -54,9 +57,9 @@ async fn main() {
     let har = Har::read(args.get_path()).unwrap();
     match &args.command {
         Command::Serve {
-            dump_path, port, ..
+            dump_path, port, proxy, ..
         } => {
-            let _ = build_server(&har, *port, dump_path)
+            let _ = build_server(&har, *port, dump_path, proxy)
                 .expect("failed to initialize server from HAR")
                 .launch()
                 .await;
