@@ -15,7 +15,7 @@ self.addEventListener('install', (event) => {
     console.log('ServiceWorker install')
 });
 
-function rewriteUrl(reqUrlStr, clientUrl) {
+function rewriteUrl(reqUrlStr) {
     const url = new URL(reqUrlStr, 'http://localhost');
     if (url.hostname === 'localhost') {
         if (INTERNAL_PATHS.includes(url.pathname)) {
@@ -33,14 +33,8 @@ function rewriteUrl(reqUrlStr, clientUrl) {
 }
 
 self.addEventListener('fetch', (event) => {
-    if (!event.clientId) {
-        console.log(`undefined client, ignoring request ${event.request.url}`)
-        return;
-    }
     event.respondWith((async () => {
-        const client = await self.clients.get(event.clientId);
-        let clientUrl = new URL(client.url);
-        const reqUrl = rewriteUrl(event.request.url, clientUrl);
+        const reqUrl = rewriteUrl(event.request.url);
         if (reqUrl !== event.request.url) {
             console.log(`translating url: ${event.request.url} => ${reqUrl}`);
         } else {
