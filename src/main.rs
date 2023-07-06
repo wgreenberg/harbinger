@@ -1,3 +1,4 @@
+mod blackhole;
 mod dump;
 mod error;
 mod har;
@@ -6,7 +7,9 @@ mod server;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use tokio::join;
 
+use crate::blackhole::build_blackhole;
 use crate::dump::dump;
 use crate::har::Har;
 use crate::server::build_server;
@@ -39,6 +42,9 @@ enum Command {
 
         #[arg(long)]
         proxy: Option<reqwest::Url>,
+
+        #[arg(long)]
+        blackhole_port: Option<u16>,
     },
     Dump {
         har_path: PathBuf,
@@ -57,12 +63,20 @@ async fn main() {
     let har = Har::read(args.get_path()).unwrap();
     match &args.command {
         Command::Serve {
-            dump_path, port, proxy, ..
+            dump_path,
+            port,
+            proxy,
+            blackhole_port,
+            ..
         } => {
-            let _ = build_server(&har, *port, dump_path, proxy)
-                .expect("failed to initialize server from HAR")
-                .launch()
-                .await;
+            let harbinger_server = build_server(&har, *port, dump_path, proxy)
+                .expect("failed to initialize server from HAR");
+            if let Some(port) = blackhole_port {
+                let blackhole = build_blackhole(*port);
+                let _ = join!(harbinger_server.launch(), blackhole.launch());
+            } else {
+                let _ = harbinger_server.launch().await;
+            }
         }
         Command::Dump {
             output_path,

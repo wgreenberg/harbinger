@@ -10,8 +10,6 @@ rocket = "=0.5.0-rc.3"
 har = { path = "../../etc/har-rs" }
 clap = { version = "4.2.7", features = ["derive"] }
 anyhow = "1.0"
-dprint-plugin-typescript = "0.85.0"
-deno_ast = { version = "0.27.1", features = ["visit", "codegen"] }
 thiserror = "1.0.40"
 indicatif = "0.17.3"
 console = "0.15.7"
@@ -19,7 +17,15 @@ env_logger = "0.10.0"
 log = "0.4.17"
 serde_json = "1.0.96"
 base64 = "0.21.2"
-swc_core = { version = "0.78.3", features = ["common", "ecma_utils", "ecma_plugin_transform"] }
 serde = "1.0.164"
-swc = "0.261.41"
 reqwest = "0.11.18"
+tokio = "1.29.1"
+swc_core = { version = "0.79", features = [
+    "common",
+    "ecma_plugin_transform",
+    "ecma_utils",
+    "ecma_visit",
+    "ecma_ast"
+] }
+swc_ecma_parser = "0.137.2"
+swc = "0.264.10"

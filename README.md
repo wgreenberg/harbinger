@@ -14,4 +14,5 @@
 * frames whose src are an external resource are untouched by locally running serviceworkers
     * is there a localhost exception to this?
 * no general way to restrict outgoing network requests at the browser level. maybe at the OS level?
+    * use chrome flags `--proxy-server=<harbinger blackhole server> --proxy-bypass-list=localhost`
 * harbinger's serviceworker doesn't seem to work in firefox at all

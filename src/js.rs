@@ -1,21 +1,23 @@
-use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
-use deno_ast::swc::ast::{self, BlockStmt, BlockStmtOrExpr, CallExpr, Expr, Ident, KeyValueProp};
-use deno_ast::swc::common::EqIgnoreSpan;
-use deno_ast::swc::common::{FilePathMapping, SourceMap};
-use deno_ast::swc::parser::error::SyntaxError;
-use deno_ast::swc::parser::Syntax;
-use deno_ast::swc::visit::{as_folder, noop_visit_mut_type, FoldWith, VisitMut, VisitMutWith};
-use deno_ast::view::AssignOp;
-use deno_ast::view::BinaryOp;
-use deno_ast::view::EsVersion;
-use deno_ast::ParsedSource;
-use deno_ast::SourceTextInfo;
 use std::{fs::OpenOptions, io::Write, path::Path, sync::Arc};
 use swc::config::SourceMapsConfig;
 use swc::Compiler;
-use swc_core::common::{collections::AHashMap, util::take::Take, Globals, GLOBALS};
+use swc_core::ecma::ast::Script;
+use swc_core::ecma::visit::VisitMutWith;
+use swc_core::{
+    common::errors::{ColorConfig, Handler},
+    common::sync::Lrc,
+    common::EqIgnoreSpan,
+    common::{collections::AHashMap, util::take::Take, Globals, GLOBALS},
+    common::{FileName, FilePathMapping, SourceMap},
+    ecma::ast::AssignOp,
+    ecma::ast::BinaryOp,
+    ecma::ast::EsVersion,
+    ecma::ast::{self, BlockStmt, BlockStmtOrExpr, CallExpr, Expr, Ident, KeyValueProp},
+    ecma::visit::{as_folder, noop_visit_mut_type, FoldWith, VisitMut},
+};
+use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax};
 
 fn verify_webpack_chunk_list(call_expr: &CallExpr) -> Option<()> {
     // we're looking for something like:
@@ -89,6 +91,7 @@ impl WebpackChunk {
                     None,
                     false,
                     false,
+                    "",
                 )
                 .expect("Failed to print");
             let mut file = OpenOptions::new()
@@ -100,6 +103,37 @@ impl WebpackChunk {
         });
         Ok(())
     }
+}
+
+pub fn write_script(script: &Script, path: &Path) -> Result<()> {
+    let c = Compiler::new(Arc::new(SourceMap::new(FilePathMapping::empty())));
+    let globals = Globals::new();
+    GLOBALS.set(&globals, || {
+        let ast_printed = c
+            .print(
+                script,
+                None,
+                None,
+                false,
+                EsVersion::Es2022,
+                SourceMapsConfig::Bool(false),
+                &AHashMap::default(),
+                None,
+                false,
+                None,
+                false,
+                false,
+                "",
+            )
+            .expect("Failed to print");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path)
+            .unwrap();
+        file.write_all(ast_printed.code.as_bytes()).unwrap();
+    });
+    Ok(())
 }
 
 struct WebpackChunkIdentRenameTransformer<'a> {
@@ -146,7 +180,7 @@ impl TryFrom<&KeyValueProp> for WebpackChunk {
                 block = fun.function.body.clone().unwrap();
                 for param in &fun.function.params {
                     match &param.pat {
-                        deno_ast::swc::ast::Pat::Ident(param_id) => {
+                        ast::Pat::Ident(param_id) => {
                             params.push(param_id.id.clone());
                         }
                         _ => return Err(format!("unexpected param pat {:?}", &param.pat)),
@@ -164,7 +198,7 @@ impl TryFrom<&KeyValueProp> for WebpackChunk {
                 }
                 for pat in &arrow.params {
                     match pat {
-                        deno_ast::swc::ast::Pat::Ident(param_id) => {
+                        ast::Pat::Ident(param_id) => {
                             params.push(param_id.id.clone());
                         }
                         _ => return Err(format!("unexpected param pat {:?}", pat)),
@@ -184,8 +218,7 @@ impl TryFrom<&KeyValueProp> for WebpackChunk {
     }
 }
 
-pub fn unpack_webpack_chunk_list(source: &ParsedSource) -> Option<Vec<WebpackChunk>> {
-    let script = source.script();
+pub fn unpack_webpack_chunk_list(script: &Script) -> Option<Vec<WebpackChunk>> {
     if script.body.len() != 1 {
         return None;
     }
@@ -212,60 +245,32 @@ pub fn unpack_webpack_chunk_list(source: &ParsedSource) -> Option<Vec<WebpackChu
 }
 
 // copy/pasted from https://github.com/dprint/dprint-plugin-typescript/blob/31f1d03fb92c9a8d1da26af3ace00286257c488e/src/swc.rs
-pub fn parse_swc_ast(file_path: &Path, file_text: &str) -> Result<ParsedSource> {
-    let text_info = SourceTextInfo::from_string(file_text.to_string());
-    let media_type = deno_ast::MediaType::from_path(file_path);
-    let mut syntax = deno_ast::get_syntax(media_type);
-    if let Syntax::Es(es) = &mut syntax {
-        // support decorators in js
-        es.decorators = true;
-    }
-    let parsed_source = deno_ast::parse_program(deno_ast::ParseParams {
-        specifier: file_path.to_string_lossy().to_string(),
-        capture_tokens: true,
-        maybe_syntax: Some(syntax),
-        media_type,
-        scope_analysis: false,
-        text_info,
-    })
-    .map_err(|diagnostic| anyhow!("{:#}", &diagnostic))?;
-    let diagnostics = parsed_source
-        .diagnostics()
-        .iter()
-        .filter(|e| {
-            matches!(
-                e.kind,
-                // unexpected eof
-                SyntaxError::Eof |
-        // expected identifier
-        SyntaxError::TS1003 |
-        SyntaxError::ExpectedIdent |
-        // expected semi-colon
-        SyntaxError::TS1005 |
-        SyntaxError::ExpectedSemi |
-        // expected expression
-        SyntaxError::TS1109 |
-        // expected token
-        SyntaxError::Expected(_, _) |
-        // various expected
-        SyntaxError::ExpectedDigit { .. } |
-        SyntaxError::ExpectedSemiForExprStmt { .. } |
-        SyntaxError::ExpectedUnicodeEscape |
-        // unexpected token
-        SyntaxError::Unexpected { .. }
-            )
-        })
-        .collect::<Vec<_>>();
+pub fn parse_swc_ast(file_name: String, file_text: String) -> Result<Script> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
 
-    if !diagnostics.is_empty() {
-        let mut final_message = String::new();
-        for diagnostic in diagnostics {
-            if !final_message.is_empty() {
-                final_message.push_str("\n\n");
-            }
-            final_message.push_str(&format!("{diagnostic}"));
-        }
-        bail!("{}", final_message)
+    // Real usage
+    // let fm = cm
+    //     .load_file(Path::new("test.js"))
+    //     .expect("failed to load test.js");
+    let fm = cm.new_source_file(FileName::Custom(file_name), file_text);
+    let lexer = Lexer::new(
+        // We want to parse ecmascript
+        Syntax::Es(Default::default()),
+        // EsVersion defaults to es5
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+
+    let mut parser = Parser::new_from(lexer);
+
+    for e in parser.take_errors() {
+        e.into_diagnostic(&handler).emit();
     }
-    Ok(parsed_source)
+
+    match parser.parse_script() {
+        Ok(script) => Ok(script),
+        Err(e) => bail!("failed to parse script: {:?}", e),
+    }
 }

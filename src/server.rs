@@ -61,7 +61,12 @@ fn get_entry_route_path(entry_uri: &uri::Absolute, origin_host: &str) -> Result<
     }
 }
 
-pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>, proxy: &Option<reqwest::Url>) -> Result<Rocket<Build>> {
+pub fn build_server(
+    har: &Har,
+    port: u16,
+    dump_path: &Option<PathBuf>,
+    proxy: &Option<reqwest::Url>,
+) -> Result<Rocket<Build>> {
     if let Some(path) = dump_path {
         if !path.try_exists().unwrap() {
             panic!("dump path {} doesn't exist", path.display());
@@ -97,7 +102,9 @@ pub fn build_server(har: &Har, port: u16, dump_path: &Option<PathBuf>, proxy: &O
     if let Some(proxy_url) = proxy {
         use rocket::http::Method::*;
         for method in &[Get, Put, Post, Delete, Options, Head, Trace, Connect, Patch] {
-            let handler = ProxyHandler { proxy_url: proxy_url.clone() };
+            let handler = ProxyHandler {
+                proxy_url: proxy_url.clone(),
+            };
             entry_routes.push(Route::new(*method, "/<any..>", handler));
         }
     }
@@ -136,8 +143,7 @@ impl Handler for ProxyHandler {
         };
         let mut proxy_url = self.proxy_url.clone();
         proxy_url.set_path(req.uri().path().as_str());
-        let proxy_req = client.request(method, proxy_url)
-            .build().unwrap();
+        let proxy_req = client.request(method, proxy_url).build().unwrap();
         let proxy_res = client.execute(proxy_req).await.unwrap();
         let mut res = Response::new();
         let status = Status::from_code(proxy_res.status().as_u16()).unwrap();

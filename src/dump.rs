@@ -1,9 +1,4 @@
 use anyhow::Result;
-use deno_ast::ParsedSource;
-use dprint_plugin_typescript::configuration::{
-    ConfigurationBuilder, NextControlFlowPosition, QuoteStyle, UseParentheses,
-};
-use dprint_plugin_typescript::{configuration::Configuration, format_parsed_source};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::{create_dir, create_dir_all, OpenOptions};
 use std::io::Write;
@@ -12,7 +7,7 @@ use thiserror::Error;
 
 use crate::error::HarbingerError;
 use crate::har::Har;
-use crate::js::{parse_swc_ast, unpack_webpack_chunk_list};
+use crate::js::{parse_swc_ast, unpack_webpack_chunk_list, write_script};
 
 pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
     if output_path.try_exists()? {
@@ -24,14 +19,6 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
         ProgressStyle::with_template("{prefix:.bold.dim} {spinner} {bar} {msg}").unwrap();
     let pb = ProgressBar::new(har.entries.len() as u64);
     pb.set_style(pb_style);
-
-    let unminification_config = ConfigurationBuilder::new()
-        .line_width(80)
-        .arrow_function_use_parentheses(UseParentheses::Force)
-        .prefer_single_line(false)
-        .quote_style(QuoteStyle::PreferSingle)
-        .next_control_flow_position(NextControlFlowPosition::SameLine)
-        .build();
 
     for (i, entry) in har.entries.iter().enumerate() {
         let uri = entry.uri()?;
@@ -52,8 +39,8 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
         if unminify && entry.res_header("content-type") == Some("application/javascript") {
             pb.println(" * parsing...");
             let body_str = std::str::from_utf8(&body_bytes).unwrap();
-            let parsed_source = parse_swc_ast(&path, &body_str)?;
-            if let Some(chunks) = unpack_webpack_chunk_list(&parsed_source) {
+            let script = parse_swc_ast(path.to_string_lossy().to_string(), body_str.to_string())?;
+            if let Some(chunks) = unpack_webpack_chunk_list(&script) {
                 let mut unpack_path = path.with_extension("");
                 let file_name = unpack_path.file_name().unwrap().to_str().unwrap();
                 unpack_path.set_file_name(format!("{}_unbundled", file_name));
@@ -69,7 +56,7 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
                 }
             }
             pb.println(" * unminifying...");
-            write_unminified(&path, &parsed_source, &unminification_config)?;
+            write_script(&script, &path)?;
         } else {
             pb.println(" * writing normally...");
             let mut file = OpenOptions::new().write(true).create(true).open(&path)?;
@@ -87,16 +74,4 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
 enum UnminificationError {
     #[error("no unminified body returned")]
     NoUnminifiedBody,
-}
-
-fn write_unminified(path: &Path, source: &ParsedSource, config: &Configuration) -> Result<()> {
-    let mut file = OpenOptions::new().write(true).create(true).open(path)?;
-    match format_parsed_source(source, config) {
-        Ok(Some(unminified_body)) => {
-            file.write_all(unminified_body.as_bytes())?;
-            Ok(())
-        }
-        Ok(None) => Err(UnminificationError::NoUnminifiedBody.into()),
-        Err(err) => Err(err),
-    }
 }
