@@ -123,11 +123,11 @@ impl Entry {
     }
 
     pub fn method(&self) -> &str {
-        return self.inner.request.method.as_str();
+        self.inner.request.method.as_str()
     }
 
     pub fn status(&self) -> i64 {
-        return self.inner.response.status;
+        self.inner.response.status
     }
 
     pub fn res_body(&self) -> Option<Vec<u8>> {

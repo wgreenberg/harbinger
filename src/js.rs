@@ -3,19 +3,21 @@ use anyhow::Result;
 use std::{fs::OpenOptions, io::Write, path::Path, sync::Arc};
 use swc::config::SourceMapsConfig;
 use swc::Compiler;
-use swc_core::ecma::ast::Script;
-use swc_core::ecma::visit::VisitMutWith;
 use swc_core::{
-    common::errors::{ColorConfig, Handler},
-    common::sync::Lrc,
-    common::EqIgnoreSpan,
-    common::{collections::AHashMap, util::take::Take, Globals, GLOBALS},
-    common::{FileName, FilePathMapping, SourceMap},
-    ecma::ast::AssignOp,
-    ecma::ast::BinaryOp,
-    ecma::ast::EsVersion,
-    ecma::ast::{self, BlockStmt, BlockStmtOrExpr, CallExpr, Expr, Ident, KeyValueProp},
-    ecma::visit::{as_folder, noop_visit_mut_type, FoldWith, VisitMut},
+    common::{
+        collections::AHashMap,
+        errors::{ColorConfig, Handler},
+        sync::Lrc,
+        util::take::Take,
+        EqIgnoreSpan, FileName, FilePathMapping, Globals, SourceMap, GLOBALS,
+    },
+    ecma::{
+        ast::{
+            self, AssignOp, BinaryOp, BlockStmt, BlockStmtOrExpr, CallExpr, EsVersion, Expr, Ident,
+            KeyValueProp, Script,
+        },
+        visit::{as_folder, noop_visit_mut_type, FoldWith, VisitMut, VisitMutWith},
+    },
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax};
 
@@ -80,37 +82,6 @@ impl WebpackChunk {
     }
 }
 
-pub fn write_script(script: &Script, path: &Path) -> Result<()> {
-    let c = Compiler::new(Arc::new(SourceMap::new(FilePathMapping::empty())));
-    let globals = Globals::new();
-    GLOBALS.set(&globals, || {
-        let ast_printed = c
-            .print(
-                script,
-                None,
-                None,
-                false,
-                EsVersion::Es2022,
-                SourceMapsConfig::Bool(false),
-                &AHashMap::default(),
-                None,
-                false,
-                None,
-                false,
-                false,
-                "",
-            )
-            .expect("Failed to print");
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(path)
-            .unwrap();
-        file.write_all(ast_printed.code.as_bytes()).unwrap();
-    });
-    Ok(())
-}
-
 struct WebpackChunkIdentRenameTransformer<'a> {
     module_id: Option<&'a Ident>,
     require_id: Option<&'a Ident>,
@@ -137,7 +108,6 @@ impl<'a> VisitMut for WebpackChunkIdentRenameTransformer<'a> {
         if let Some(exports) = &self.exports_id {
             if exports.to_id() == ident.to_id() {
                 ident.sym = "exports".into();
-                return;
             }
         }
     }
@@ -219,21 +189,13 @@ pub fn unpack_webpack_chunk_list(script: &Script) -> Option<Vec<WebpackChunk>> {
     Some(result)
 }
 
-// copy/pasted from https://github.com/dprint/dprint-plugin-typescript/blob/31f1d03fb92c9a8d1da26af3ace00286257c488e/src/swc.rs
-pub fn parse_swc_ast(file_name: String, file_text: String) -> Result<Script> {
+pub fn parse_js(file_name: String, file_text: String) -> Result<Script> {
     let cm: Lrc<SourceMap> = Default::default();
     let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
-
-    // Real usage
-    // let fm = cm
-    //     .load_file(Path::new("test.js"))
-    //     .expect("failed to load test.js");
     let fm = cm.new_source_file(FileName::Custom(file_name), file_text);
     let lexer = Lexer::new(
-        // We want to parse ecmascript
         Syntax::Es(Default::default()),
-        // EsVersion defaults to es5
-        Default::default(),
+        EsVersion::Es2022,
         StringInput::from(&*fm),
         None,
     );
@@ -248,4 +210,35 @@ pub fn parse_swc_ast(file_name: String, file_text: String) -> Result<Script> {
         Ok(script) => Ok(script),
         Err(e) => bail!("failed to parse script: {:?}", e),
     }
+}
+
+pub fn write_script(script: &Script, path: &Path) -> Result<()> {
+    let c = Compiler::new(Arc::new(SourceMap::new(FilePathMapping::empty())));
+    let globals = Globals::new();
+    GLOBALS.set(&globals, || {
+        let ast_printed = c
+            .print(
+                script,
+                None,
+                None,
+                false,
+                EsVersion::Es2022,
+                SourceMapsConfig::Bool(false),
+                &AHashMap::default(),
+                None,
+                false,
+                None,
+                false,
+                false,
+                "",
+            )
+            .expect("Failed to print");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path)
+            .unwrap();
+        file.write_all(ast_printed.code.as_bytes()).unwrap();
+    });
+    Ok(())
 }

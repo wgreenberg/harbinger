@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::error::HarbingerError;
 use crate::har::Har;
-use crate::js::{parse_swc_ast, unpack_webpack_chunk_list, write_script};
+use crate::js::{parse_js, unpack_webpack_chunk_list, write_script};
 
 pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
     if output_path.try_exists()? {
@@ -38,7 +38,7 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
         if unminify && entry.res_header("content-type") == Some("application/javascript") {
             pb.println(" * parsing...");
             let body_str = std::str::from_utf8(&body_bytes).unwrap();
-            let script = parse_swc_ast(path.to_string_lossy().to_string(), body_str.to_string())?;
+            let script = parse_js(path.to_string_lossy().to_string(), body_str.to_string())?;
             if let Some(chunks) = unpack_webpack_chunk_list(&script) {
                 let mut unpack_path = path.with_extension("");
                 let file_name = unpack_path.file_name().unwrap().to_str().unwrap();

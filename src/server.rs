@@ -13,7 +13,7 @@ use crate::{
     har::{Entry, Har},
 };
 
-const UNFORWARDED_HEADERS: &'static [&'static str] = &[
+const UNFORWARDED_HEADERS: &[&str] = &[
     // Security headers we want to override
     "x-frame-options",
     "x-content-type-options",
@@ -185,7 +185,7 @@ impl EntryHandler {
             self.entry.method(),
             self.entry.uri()?
         );
-        Ok(self.entry.res_body().unwrap_or(vec![]).to_owned())
+        Ok(self.entry.res_body().unwrap_or(vec![]))
     }
 }
 
@@ -202,12 +202,11 @@ impl Handler for EntryHandler {
             // handle Location headers for redirects
             if normalized_name == "location" {
                 let hostname = self.entry.hostname().unwrap();
-                let new_location;
-                if value.starts_with('/') {
-                    new_location = format!("/{}{}", hostname, value);
+                let new_location = if value.starts_with('/') {
+                    format!("/{}{}", hostname, value)
                 } else {
-                    new_location = format!("/{}/{}", hostname, value);
-                }
+                    format!("/{}/{}", hostname, value)
+                };
                 res.set_raw_header(name.to_string(), new_location);
             } else {
                 res.set_raw_header(name.to_string(), value.to_string());
