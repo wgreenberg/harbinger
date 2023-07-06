@@ -2,8 +2,7 @@ use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::{create_dir, create_dir_all, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use thiserror::Error;
+use std::path::PathBuf;
 
 use crate::error::HarbingerError;
 use crate::har::Har;
@@ -50,9 +49,11 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
                     unpack_path.display()
                 ));
                 create_dir(&unpack_path)?;
-                for chunk in &chunks {
+                for chunk in chunks {
                     pb.println(format!("  * unpacking {}...", chunk.label));
-                    chunk.write_to_file(&unpack_path)?;
+                    let mut chunk_path = unpack_path.join(&chunk.label);
+                    chunk_path.set_extension("js");
+                    write_script(&chunk.into_script(), &chunk_path)?;
                 }
             }
             pb.println(" * unminifying...");
@@ -68,10 +69,4 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
     pb.finish_with_message("finished!");
 
     Ok(())
-}
-
-#[derive(Error, Debug)]
-enum UnminificationError {
-    #[error("no unminified body returned")]
-    NoUnminifiedBody,
 }

@@ -71,37 +71,12 @@ impl WebpackChunk {
         self.block = self.block.take().fold_with(&mut as_folder(transformer));
     }
 
-    pub fn write_to_file(&self, path: &std::path::Path) -> Result<()> {
-        let c = Compiler::new(Arc::new(SourceMap::new(FilePathMapping::empty())));
-        let mut chunk_path = path.join(&self.label);
-        chunk_path.set_extension("js");
-        let globals = Globals::new();
-        GLOBALS.set(&globals, || {
-            let ast_printed = c
-                .print(
-                    &self.block,
-                    None,
-                    None,
-                    false,
-                    EsVersion::Es2022,
-                    SourceMapsConfig::Bool(false),
-                    &AHashMap::default(),
-                    None,
-                    false,
-                    None,
-                    false,
-                    false,
-                    "",
-                )
-                .expect("Failed to print");
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .open(chunk_path)
-                .unwrap();
-            file.write_all(ast_printed.code.as_bytes()).unwrap();
-        });
-        Ok(())
+    pub fn into_script(self) -> Script {
+        Script {
+            body: self.block.stmts,
+            span: self.block.span,
+            shebang: None,
+        }
     }
 }
 
