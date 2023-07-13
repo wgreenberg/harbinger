@@ -8,7 +8,7 @@ use crate::error::HarbingerError;
 use crate::har::Har;
 use crate::js::{parse_js, unpack_webpack_chunk_list, write_script};
 
-pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
+pub fn dump(har: &Har, output_path: &PathBuf) -> Result<()> {
     if output_path.try_exists()? {
         return Err(HarbingerError::DumpPathExists.into());
     }
@@ -35,7 +35,7 @@ pub fn dump(har: &Har, output_path: &PathBuf, unminify: bool) -> Result<()> {
 
         pb.println(format!("processing {}", uri));
         let body_bytes = entry.res_body().unwrap();
-        if unminify && entry.res_header("content-type") == Some("application/javascript") {
+        if entry.res_header("content-type") == Some("application/javascript") {
             pb.println(" * parsing...");
             let body_str = std::str::from_utf8(&body_bytes).unwrap();
             let script = parse_js(path.to_string_lossy().to_string(), body_str.to_string())?;

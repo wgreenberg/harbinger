@@ -51,9 +51,6 @@ enum Command {
 
         #[arg(long, short)]
         output_path: PathBuf,
-
-        #[arg(long)]
-        unminify: bool,
     },
 }
 
@@ -80,10 +77,9 @@ async fn main() {
         }
         Command::Dump {
             output_path,
-            unminify,
             ..
         } => {
-            dump(&har, output_path, *unminify).expect("failed to dump HAR");
+            dump(&har, output_path).expect("failed to dump HAR");
         }
     }
 }

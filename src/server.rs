@@ -222,10 +222,10 @@ impl Handler for EntryHandler {
             //"object-src 'self'",
             //"child-src 'self'",
             //"media-src 'self'",
-            "frame-src 'self'",
+            //"frame-src 'self'",
             //"img-src 'self'",
             "worker-src 'self'",
-            "manifest-src 'self'",
+            //"manifest-src 'self'",
             //"form-action 'self'",
         ];
         res.set_raw_header("content-security-policy", csp_components.join("; "));
