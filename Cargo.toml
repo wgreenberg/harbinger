@@ -29,3 +29,4 @@ swc_core = { version = "0.79", features = [
 ] }
 swc_ecma_parser = "0.137.2"
 swc = "0.264.10"
+md5 = "0.7.0"

@@ -5,15 +5,15 @@ use har::{
     Har as HarExt,
 };
 use log::warn;
-use rocket::http::uri;
+use rocket::http::{uri, Method};
 use std::{
     fs::File,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, collections::HashMap, hash::BuildHasher,
 };
 
 use crate::error::HarbingerError;
 
-fn read_v1_2_har(path: &PathBuf) -> Result<Log> {
+fn read_v1_2_har(path: &Path) -> Result<Log> {
     let reader = File::open(path)?;
     match serde_json::from_reader::<File, HarExt>(reader)?.log {
         har::Spec::V1_2(log) => Ok(log),
@@ -49,9 +49,30 @@ impl Har {
         Har { entries, page_id }
     }
 
-    pub fn read(path: &PathBuf) -> Result<Self> {
+    pub fn entries(&self) -> Result<HashMap<(Method, String), Vec<&Entry>>> {
+        let mut map = HashMap::new();
+        for entry in &self.entries {
+            let method = entry.method()?;
+            let uri = entry.uri()?;
+            let uri_without_query_or_fragment = format!(
+                "{}{}",
+                uri.authority().unwrap(),
+                uri.path()
+            );
+            let matching_entries = map.entry((method, uri_without_query_or_fragment))
+                .or_insert(Vec::new());
+            matching_entries.push(entry);
+        }
+        Ok(map)
+    }
+
+    pub fn read(path: &Path) -> Result<Self> {
         let log = read_v1_2_har(path)?;
         Ok(Har::new(log))
+    }
+
+    pub fn primary_url(&self) -> &str {
+        &self.entries[0].inner.request.url
     }
 
     pub fn origin_host(&self) -> Result<String> {
@@ -66,12 +87,19 @@ pub struct Entry {
     inner: Entries,
 }
 
+// truncates a string to a given length, less the size of its md5 hash
+fn uniquely_truncate(s: &str, limit: usize) -> String {
+    let hash = md5::compute(s);
+    let substr = s.get(..limit - 32).unwrap_or(s);
+    format!("{}_{:x}", substr, hash)
+}
+
 impl Entry {
     pub fn new(inner: Entries) -> Entry {
         Entry { inner }
     }
 
-    pub fn get_dump_path(&self, base_path: &Path) -> PathBuf {
+    pub fn get_dump_path(&self, base_path: &Path) -> Result<PathBuf> {
         let url = self
             .inner
             .request
@@ -79,23 +107,40 @@ impl Entry {
             .replace("http://", "")
             .replace("https://", "");
         let mut path = base_path.to_path_buf();
+        path.push(self.method()?.to_string());
         for part in Path::new(&url).components() {
-            path.push(part);
+            if part.as_os_str().len() > 200 {
+                let s = part.as_os_str().to_str().unwrap();
+                path.push(uniquely_truncate(s, 200))
+            } else {
+                path.push(part);
+            }
         }
         if url.ends_with('/') {
             path.push("__index__");
         }
-        path
+        Ok(path)
     }
 
-    pub fn uri(&self) -> Result<uri::Absolute> {
+    pub fn uri(&self) -> Result<uri::Reference> {
         let req_uri = self.inner.request.url.as_str();
-        let parsed = uri::Uri::parse::<uri::Absolute>(req_uri)
-            .map_err(|_| HarbingerError::InvalidHarEntryUri)?;
+        let parsed = uri::Uri::parse::<uri::Reference>(req_uri)
+            .map_err(|err| {
+                dbg!(err);
+                HarbingerError::InvalidHarEntryUri { uri: req_uri.to_string() }
+            })?;
         parsed
-            .absolute()
+            .reference()
             .cloned()
-            .ok_or(HarbingerError::InvalidHarEntryUri.into())
+            .ok_or(HarbingerError::InvalidHarEntryUri { uri: req_uri.to_string() }.into())
+    }
+    
+    pub fn method(&self) -> Result<Method> {
+        let method_str = self.inner.request.method.as_str();
+        method_str.parse::<Method>()
+            .map_err(|_| HarbingerError::InvalidHarEntryMethod {
+                method: method_str.to_string(),
+            }.into())
     }
 
     pub fn hostname(&self) -> Result<String> {
@@ -120,10 +165,6 @@ impl Entry {
             .headers
             .iter()
             .map(|header| (header.name.as_str(), header.value.as_str()))
-    }
-
-    pub fn method(&self) -> &str {
-        self.inner.request.method.as_str()
     }
 
     pub fn status(&self) -> i64 {

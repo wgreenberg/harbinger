@@ -8,7 +8,7 @@ use crate::error::HarbingerError;
 use crate::har::Har;
 use crate::js::{parse_js, unpack_webpack_chunk_list, write_script};
 
-pub fn dump(har: &Har, output_path: &PathBuf) -> Result<()> {
+pub fn dump(har: &Har, output_path: &PathBuf, raw: bool) -> Result<()> {
     if output_path.try_exists()? {
         return Err(HarbingerError::DumpPathExists.into());
     }
@@ -23,19 +23,18 @@ pub fn dump(har: &Har, output_path: &PathBuf) -> Result<()> {
         let uri = entry.uri()?;
         pb.set_prefix(format!("[{}/{}]", i, har.entries.len()));
         pb.set_message(format!("processing {}", uri));
-        if entry.method() != "GET" {
-            pb.println(format!("skipping {} {}", entry.method(), uri));
-            continue;
-        }
 
-        let path = entry.get_dump_path(output_path);
+        let path = entry.get_dump_path(output_path)?;
         if let Some(parent_path) = path.parent() {
             create_dir_all(parent_path)?;
         }
 
         pb.println(format!("processing {}", uri));
-        let body_bytes = entry.res_body().unwrap();
-        if entry.res_header("content-type") == Some("application/javascript") {
+        let body_bytes = match entry.res_body() {
+            Some(bytes) => bytes,
+            None => continue,
+        };
+        if !raw && entry.res_header("content-type") == Some("application/javascript") {
             pb.println(" * parsing...");
             let body_str = std::str::from_utf8(&body_bytes).unwrap();
             let script = parse_js(path.to_string_lossy().to_string(), body_str.to_string())?;

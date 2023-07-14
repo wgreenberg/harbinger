@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::{error, info, warn};
 use rocket::config::Config as RocketConfig;
 use rocket::http::{uri, ContentType, Status};
-use rocket::route::{Handler, Outcome};
+use rocket::route::{Handler, Outcome, self};
 use rocket::{get, routes, Response, State};
 use rocket::{http::Method, Build, Data, Request, Rocket, Route};
 use std::io;
@@ -52,7 +52,7 @@ fn serve_worker_js(config: &State<Config>) -> (ContentType, String) {
     (ContentType::JavaScript, content)
 }
 
-fn get_entry_route_path(entry_uri: &uri::Absolute, origin_host: &str) -> Result<String> {
+fn get_entry_route_path(entry_uri: &uri::Reference, origin_host: &str) -> Result<String> {
     let hostname = entry_uri.authority().unwrap().host();
     if hostname == origin_host {
         Ok(format!("/{}", entry_uri.path()))
@@ -64,8 +64,8 @@ fn get_entry_route_path(entry_uri: &uri::Absolute, origin_host: &str) -> Result<
 pub fn build_server(
     har: &Har,
     port: u16,
-    dump_path: &Option<PathBuf>,
-    proxy: &Option<reqwest::Url>,
+    dump_path: Option<&PathBuf>,
+    proxy: Option<&reqwest::Url>,
 ) -> Result<Rocket<Build>> {
     if let Some(path) = dump_path {
         if !path.try_exists().unwrap() {
@@ -77,25 +77,13 @@ pub fn build_server(
 
     let mut entry_routes = Vec::new();
     let mut routed_paths = Vec::new();
-    for entry in har.entries.iter().cloned() {
-        let entry_uri = entry.uri()?;
-        let path = get_entry_route_path(&entry_uri, &origin_host)?;
-        if routed_paths.contains(&path) {
-            warn!("found duplicate entry for path {}, skipping", &path);
-            continue;
-        }
-        let method: Method =
-            entry
-                .method()
-                .parse()
-                .map_err(|_| HarbingerError::InvalidHarEntryMethod {
-                    method: entry.method().to_string(),
-                })?;
+    for ((method, path), entries) in har.entries()?.iter() {
         let handler = EntryHandler {
-            entry,
-            dump_path: dump_path.clone(),
+            entries: entries.iter().cloned().cloned().collect(),
+            dump_path: dump_path.cloned(),
         };
-        entry_routes.push(Route::new(method, &path, handler));
+        let route_path = get_entry_route_path(&entries[0].uri()?, &origin_host)?;
+        entry_routes.push(Route::new(*method, &route_path, handler));
         routed_paths.push(path);
     }
 
@@ -165,19 +153,19 @@ impl Handler for ProxyHandler {
 
 #[derive(Clone)]
 struct EntryHandler {
-    entry: Entry,
+    entries: Vec<Entry>,
     dump_path: Option<PathBuf>,
 }
 
 impl EntryHandler {
-    fn get_body(&self) -> Result<Vec<u8>> {
+    fn get_body(&self, entry: &Entry) -> Result<Vec<u8>> {
         if let Some(base_path) = &self.dump_path {
-            let override_path = self.entry.get_dump_path(base_path);
+            let override_path = entry.get_dump_path(base_path)?;
             if override_path.exists() {
                 info!(
                     "{} {}: loading body from file {}",
-                    self.entry.method(),
-                    self.entry.uri()?,
+                    entry.method()?,
+                    entry.uri()?,
                     override_path.display()
                 );
                 return std::fs::read(override_path).map_err(|err| err.into());
@@ -185,63 +173,56 @@ impl EntryHandler {
         }
         info!(
             "{} {}: loading body from HAR",
-            self.entry.method(),
-            self.entry.uri()?
+            entry.method()?,
+            entry.uri()?
         );
-        Ok(self.entry.res_body().unwrap_or(vec![]))
+        Ok(entry.res_body().unwrap_or(vec![]))
     }
 }
 
 #[rocket::async_trait]
 impl Handler for EntryHandler {
-    async fn handle<'r>(&self, _req: &'r Request<'_>, _data: Data<'r>) -> Outcome<'r> {
-        let mut res = Response::new();
-        for (name, value) in self.entry.res_headers() {
-            let normalized_name = name.to_ascii_lowercase();
-            if UNFORWARDED_HEADERS.contains(&normalized_name.as_str()) {
-                continue;
-            }
+    // handler for a group of entries that share the same path
+    async fn handle<'r>(&self, req: &'r Request<'_>, data: Data<'r>) -> Outcome<'r> {
+        for entry in &self.entries {
+            if req.uri().query() == entry.uri().unwrap().query() {
+                let mut res = Response::new();
+                for (name, value) in entry.res_headers() {
+                    let normalized_name = name.to_ascii_lowercase();
+                    if UNFORWARDED_HEADERS.contains(&normalized_name.as_str()) {
+                        continue;
+                    }
 
-            // handle Location headers for redirects
-            if normalized_name == "location" {
-                let hostname = self.entry.hostname().unwrap();
-                let new_location = if value.starts_with('/') {
-                    format!("/{}{}", hostname, value)
-                } else {
-                    format!("/{}/{}", hostname, value)
-                };
-                res.set_raw_header(name.to_string(), new_location);
-            } else {
-                res.set_raw_header(name.to_string(), value.to_string());
+                    // handle Location headers for redirects
+                    if normalized_name == "location" {
+                        let hostname = entry.hostname().unwrap();
+                        let new_location = if value.starts_with('/') {
+                            format!("/{}{}", hostname, value)
+                        } else {
+                            format!("/{}/{}", hostname, value)
+                        };
+                        res.set_raw_header(name.to_string(), new_location);
+                    } else {
+                        res.set_raw_header(name.to_string(), value.to_string());
+                    }
+                }
+                let csp_components = [
+                    "base-uri 'self'",
+                    "default-src * 'unsafe-inline' 'unsafe-eval'",
+                    "worker-src 'self'",
+                ];
+                res.set_raw_header("content-security-policy", csp_components.join("; "));
+                match self.get_body(entry) {
+                    Ok(body) => res.set_sized_body(None, io::Cursor::new(body)),
+                    Err(err) => {
+                        warn!("entry failed to handle request: {:?}", err);
+                        return Outcome::Failure(Status::InternalServerError);
+                    }
+                }
+                res.set_status(rocket::http::Status::new(entry.status() as u16));
+                return Outcome::Success(res)
             }
         }
-        let csp_components = [
-            "base-uri 'self'",
-            "default-src * 'unsafe-inline' 'unsafe-eval'",
-            //"script-src 'self' 'unsafe-inline'",
-            //"style-src 'self' 'unsafe-inline'",
-            //"connect-src 'self'",
-            //"font-src 'self'",
-            //"object-src 'self'",
-            //"child-src 'self'",
-            //"media-src 'self'",
-            //"frame-src 'self'",
-            //"img-src 'self'",
-            "worker-src 'self'",
-            //"manifest-src 'self'",
-            //"form-action 'self'",
-        ];
-        res.set_raw_header("content-security-policy", csp_components.join("; "));
-        match self.get_body() {
-            Ok(body) => {
-                res.set_sized_body(None, io::Cursor::new(body));
-            }
-            Err(err) => {
-                error!("error getting body for entry {}", err);
-                return Outcome::Failure(Status::InternalServerError);
-            }
-        }
-        res.set_status(rocket::http::Status::new(self.entry.status() as u16));
-        Outcome::Success(res)
+        Outcome::Forward(data)
     }
 }

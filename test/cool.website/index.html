@@ -7,11 +7,19 @@
         <script src="/relative-script.js"></script>
         <script src="http://cool.website/absolute-script.js"></script>
         <script>
-            const zalgo_uri = "https://api.stackexchange.com/2.3/answers/1732454?order=desc&sort=activity&site=stackoverflow&filter=!-)ZoK(1l90pT";
+            // making two requests w/ a common path, but different query strings
+            const stack_exchange_base_uri = "https://api.stackexchange.com/2.3/answers/1732454";
+            const zalgo_uri = stack_exchange_base_uri + "?order=desc&sort=activity&site=stackoverflow&filter=!-)ZoK(1l90pT";
+            const other_zalgo_uri = stack_exchange_base_uri + "?order=desc&sort=activity&site=stackoverflow";
+
             document.addEventListener("DOMContentLoaded", async () => {
                 const res = await fetch(zalgo_uri);
                 const zalgo_text = (await res.json()).items[0].body;
                 document.getElementById('zalgo').innerHTML = zalgo_text;
+
+                const other_res = await fetch(other_zalgo_uri);
+                const zalgo_img = (await other_res.json()).items[0].owner.profile_image;
+                document.getElementById('zalgo-img').setAttribute('src', zalgo_img);
             });
         </script>
 
@@ -31,5 +39,6 @@
         <iframe src="http://cool.website/absolute-iframe.html"></iframe>
         <iframe src="https://theshrimp.cloud/"></iframe>
         <div id="zalgo"></div>
+        <img id="zalgo-img">
     </body>
 </html>

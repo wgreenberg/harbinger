@@ -6,8 +6,8 @@
 ## TODO
 * [x] proxy requests to some other backend (e.g. a python server for dynamic responses)
 * [x] static file serving in the dump dir for entries not in the HAR
-* [ ] handling of request params (currently `/foo?bar` and `/foo?baz` get assigned the same entry handler, despite possibly having different responses)
-* [ ] user-friendly TUI walkthrough
+* [x] handling of request params (currently `/foo?bar` and `/foo?baz` get assigned the same entry handler, despite possibly having different responses)
+* [x] user-friendly TUI walkthrough
 * [ ] fix serviceworkers in firefox
 
 ## OPEN PROBLEMS

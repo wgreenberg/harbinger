@@ -11,8 +11,8 @@ pub enum HarbingerError {
     HarError(#[from] HarError),
     #[error("dump path exists! cowardly bailing")]
     DumpPathExists,
-    #[error("Invalid HAR entry: invalid URI")]
-    InvalidHarEntryUri,
+    #[error("Invalid HAR entry: invalid URI {uri}")]
+    InvalidHarEntryUri { uri: String },
     #[error("Invalid HAR entry: invalid method {method}")]
     InvalidHarEntryMethod { method: String },
 }
