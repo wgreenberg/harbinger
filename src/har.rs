@@ -7,8 +7,9 @@ use har::{
 use log::warn;
 use rocket::http::{uri, Method};
 use std::{
+    collections::HashMap,
     fs::File,
-    path::{Path, PathBuf}, collections::HashMap, hash::BuildHasher,
+    path::{Path, PathBuf},
 };
 
 use crate::error::HarbingerError;
@@ -54,12 +55,10 @@ impl Har {
         for entry in &self.entries {
             let method = entry.method()?;
             let uri = entry.uri()?;
-            let uri_without_query_or_fragment = format!(
-                "{}{}",
-                uri.authority().unwrap(),
-                uri.path()
-            );
-            let matching_entries = map.entry((method, uri_without_query_or_fragment))
+            let uri_without_query_or_fragment =
+                format!("{}{}", uri.authority().unwrap(), uri.path());
+            let matching_entries = map
+                .entry((method, uri_without_query_or_fragment))
                 .or_insert(Vec::new());
             matching_entries.push(entry);
         }
@@ -124,23 +123,28 @@ impl Entry {
 
     pub fn uri(&self) -> Result<uri::Reference> {
         let req_uri = self.inner.request.url.as_str();
-        let parsed = uri::Uri::parse::<uri::Reference>(req_uri)
-            .map_err(|err| {
-                dbg!(err);
-                HarbingerError::InvalidHarEntryUri { uri: req_uri.to_string() }
-            })?;
-        parsed
-            .reference()
-            .cloned()
-            .ok_or(HarbingerError::InvalidHarEntryUri { uri: req_uri.to_string() }.into())
+        let parsed = uri::Uri::parse::<uri::Reference>(req_uri).map_err(|err| {
+            dbg!(err);
+            HarbingerError::InvalidHarEntryUri {
+                uri: req_uri.to_string(),
+            }
+        })?;
+        parsed.reference().cloned().ok_or(
+            HarbingerError::InvalidHarEntryUri {
+                uri: req_uri.to_string(),
+            }
+            .into(),
+        )
     }
-    
+
     pub fn method(&self) -> Result<Method> {
         let method_str = self.inner.request.method.as_str();
-        method_str.parse::<Method>()
-            .map_err(|_| HarbingerError::InvalidHarEntryMethod {
+        method_str.parse::<Method>().map_err(|_| {
+            HarbingerError::InvalidHarEntryMethod {
                 method: method_str.to_string(),
-            }.into())
+            }
+            .into()
+        })
     }
 
     pub fn hostname(&self) -> Result<String> {

@@ -1,17 +1,14 @@
 use anyhow::Result;
-use log::{error, info, warn};
+use log::{info, warn};
 use rocket::config::Config as RocketConfig;
 use rocket::http::{uri, ContentType, Status};
-use rocket::route::{Handler, Outcome, self};
+use rocket::route::{Handler, Outcome};
 use rocket::{get, routes, Response, State};
 use rocket::{http::Method, Build, Data, Request, Rocket, Route};
 use std::io;
 use std::path::PathBuf;
 
-use crate::{
-    error::HarbingerError,
-    har::{Entry, Har},
-};
+use crate::har::{Entry, Har};
 
 const UNFORWARDED_HEADERS: &[&str] = &[
     // Security headers we want to override
@@ -220,7 +217,7 @@ impl Handler for EntryHandler {
                     }
                 }
                 res.set_status(rocket::http::Status::new(entry.status() as u16));
-                return Outcome::Success(res)
+                return Outcome::Success(res);
             }
         }
         Outcome::Forward(data)

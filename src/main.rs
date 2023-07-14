@@ -83,7 +83,7 @@ async fn main() {
                 Ok(_) => println!("Dumped HAR to {}", output_path.display()),
                 Err(e) => println!("Failed to dump HAR: {}", e),
             }
-        },
+        }
         Command::Guide => {
             guide::run().await;
         }

@@ -1,8 +1,7 @@
-use std::path::{PathBuf, Path};
-
+use std::path::{Path, PathBuf};
 use tokio::join;
 
-use crate::{Command, har::Har, dump::dump, server::build_server, blackhole::build_blackhole};
+use crate::{blackhole::build_blackhole, dump::dump, har::Har, server::build_server};
 
 fn prompt_yes_or_no() -> Option<bool> {
     let mut response = String::new();
@@ -29,7 +28,11 @@ fn har_guide() -> Har {
         }
     };
     println!();
-    println!("Got HAR for url {} ({} entries)", har.primary_url(), har.entries.len());
+    println!(
+        "Got HAR for url {} ({} entries)",
+        har.primary_url(),
+        har.entries.len()
+    );
     har
 }
 
@@ -40,14 +43,14 @@ fn dump_guide(har: &Har) -> Option<PathBuf> {
     std::io::stdin().read_line(&mut dump_path).unwrap();
     let dump_path = Path::new(dump_path.trim()).to_path_buf();
     println!("Dumping HAR to {}", dump_path.display());
-    dump(&har, &dump_path, false).unwrap();
+    dump(har, &dump_path, false).unwrap();
     Some(dump_path)
 }
 
 async fn server_guide(har: &Har, dump_path: Option<PathBuf>) {
     println!("Would you like to serve the HAR file? (y/n):");
     match prompt_yes_or_no() {
-        Some(true) => {},
+        Some(true) => {}
         Some(false) => return,
         _ => {
             println!("Invalid response");
@@ -73,13 +76,15 @@ async fn server_guide(har: &Har, dump_path: Option<PathBuf>) {
     println!("(y/n):");
     let proxy_server = match prompt_yes_or_no() {
         Some(true) => {
-            println!("Please enter the full URL of the proxy server (including http:// or https://)");
+            println!(
+                "Please enter the full URL of the proxy server (including http:// or https://)"
+            );
             println!("(e.g. http://localhost:8001):");
             let mut proxy_server = String::new();
             std::io::stdin().read_line(&mut proxy_server).unwrap();
             let proxy_server = reqwest::Url::parse(proxy_server.trim()).unwrap();
             Some(proxy_server)
-        },
+        }
         Some(false) => None,
         _ => {
             println!("Invalid response");
@@ -90,13 +95,16 @@ async fn server_guide(har: &Har, dump_path: Option<PathBuf>) {
     println!();
     println!("To utilize the blackhole server, and thus prevent requests from leaving your network, you'll need to configure your browser to use it as a proxy.");
     println!("This can be done by launching your browser from the command line like this:");
-    println!("  google-chrome --proxy-server=http://localhost:{} --proxy-bypass-list=localhost", blackhole_port);
+    println!(
+        "  google-chrome --proxy-server=http://localhost:{} --proxy-bypass-list=localhost",
+        blackhole_port
+    );
     println!("Once you've launched your browser, navigate to http://localhost:{}/harbinger to activate Harbinger's service worker. Press enter once you've done this.", port);
     std::io::stdin().read_line(&mut String::new()).unwrap();
-    
+
     println!();
     println!("Starting the server...");
-    let harbinger_server = build_server(&har, port, dump_path.as_ref(), proxy_server.as_ref())
+    let harbinger_server = build_server(har, port, dump_path.as_ref(), proxy_server.as_ref())
         .expect("failed to initialize server from HAR");
     let blackhole = build_blackhole(port);
     let _ = join!(harbinger_server.launch(), blackhole.launch());
