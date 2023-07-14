@@ -143,6 +143,9 @@ impl Handler for ProxyHandler {
         };
         let mut proxy_url = self.proxy_url.clone();
         proxy_url.set_path(req.uri().path().as_str());
+        if let Some(query) = req.uri().query().as_ref() {
+            proxy_url.set_query(Some(query.as_str()));
+        }
         let proxy_req = client.request(method, proxy_url).build().unwrap();
         let proxy_res = client.execute(proxy_req).await.unwrap();
         let mut res = Response::new();
@@ -214,7 +217,7 @@ impl Handler for EntryHandler {
         }
         let csp_components = [
             "base-uri 'self'",
-            "default-src * 'unsafe-inline'",
+            "default-src * 'unsafe-inline' 'unsafe-eval'",
             //"script-src 'self' 'unsafe-inline'",
             //"style-src 'self' 'unsafe-inline'",
             //"connect-src 'self'",
