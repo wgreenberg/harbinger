@@ -20,13 +20,13 @@ base64 = "0.21.2"
 serde = "1.0.164"
 reqwest = "0.11.18"
 tokio = "1.29.1"
-swc_core = { version = "0.79", features = [
+swc_core = { version = "0.100.1", features = [
     "common",
     "ecma_plugin_transform",
     "ecma_utils",
     "ecma_visit",
     "ecma_ast"
 ] }
-swc_ecma_parser = "0.137.2"
-swc = "0.264.10"
+swc_ecma_parser = "0.149.0"
+swc = "0.283.0"
 md5 = "0.7.0"

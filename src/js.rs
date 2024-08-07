@@ -1,11 +1,10 @@
 use anyhow::bail;
 use anyhow::Result;
+use swc::PrintArgs;
 use std::{fs::OpenOptions, io::Write, path::Path, sync::Arc};
-use swc::config::SourceMapsConfig;
 use swc::Compiler;
 use swc_core::{
     common::{
-        collections::AHashMap,
         errors::{ColorConfig, Handler},
         sync::Lrc,
         util::take::Take,
@@ -14,12 +13,13 @@ use swc_core::{
     ecma::{
         ast::{
             self, AssignOp, BinaryOp, BlockStmt, BlockStmtOrExpr, CallExpr, EsVersion, Expr, Ident,
-            KeyValueProp, Script,
+            KeyValueProp, Script
         },
         visit::{as_folder, noop_visit_mut_type, FoldWith, VisitMut, VisitMutWith},
     },
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax};
+
 
 fn verify_webpack_chunk_list(call_expr: &CallExpr) -> Option<()> {
     // we're looking for something like:
@@ -27,7 +27,7 @@ fn verify_webpack_chunk_list(call_expr: &CallExpr) -> Option<()> {
     let callee_member = call_expr.callee.as_expr()?.as_member()?;
 
     let called_property = callee_member.prop.as_ident()?;
-    if !called_property.sym.eq_str_ignore_ascii_case("push") {
+    if !called_property.sym.eq_ignore_ascii_case("push") {
         return None;
     }
 
@@ -36,7 +36,7 @@ fn verify_webpack_chunk_list(call_expr: &CallExpr) -> Option<()> {
         return None;
     }
 
-    let lhs_member_expr = callee_assignment.left.as_expr()?.as_member()?;
+    let lhs_member_expr = callee_assignment.left.as_simple()?.as_member()?;
     let rhs_binary_expr = callee_assignment.right.as_bin()?;
     if rhs_binary_expr.op != BinaryOp::LogicalOr {
         return None;
@@ -192,7 +192,7 @@ pub fn unpack_webpack_chunk_list(script: &Script) -> Option<Vec<WebpackChunk>> {
 pub fn parse_js(file_name: String, file_text: String) -> Result<Script> {
     let cm: Lrc<SourceMap> = Default::default();
     let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
-    let fm = cm.new_source_file(FileName::Custom(file_name), file_text);
+    let fm = cm.new_source_file(Arc::new(FileName::Custom(file_name)), file_text);
     let lexer = Lexer::new(
         Syntax::Es(Default::default()),
         EsVersion::Es2022,
@@ -216,22 +216,8 @@ pub fn write_script(script: &Script, path: &Path) -> Result<()> {
     let c = Compiler::new(Arc::new(SourceMap::new(FilePathMapping::empty())));
     let globals = Globals::new();
     GLOBALS.set(&globals, || {
-        let ast_printed = c
-            .print(
-                script,
-                None,
-                None,
-                false,
-                EsVersion::Es2022,
-                SourceMapsConfig::Bool(false),
-                &AHashMap::default(),
-                None,
-                false,
-                None,
-                false,
-                false,
-                "",
-            )
+        let print_args = PrintArgs::default();
+        let ast_printed = c.print(script, print_args)
             .expect("Failed to print");
         let mut file = OpenOptions::new()
             .write(true)
